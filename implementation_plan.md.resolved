@@ -1,0 +1,73 @@
+# Gmail OAuth Integration Using Firebase
+
+Enable functional Gmail connection in the AiOps dashboard using the existing Firebase project with Google authentication.
+
+## Key Insight
+
+The existing Firebase config already requests Gmail scopes:
+```javascript
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
+```
+
+When users sign in with `signInWithPopup`, Firebase returns an OAuth access token that can be used to call Gmail API directly. We just need to capture and use this token.
+
+---
+
+## Proposed Changes
+
+### Frontend - Capture Gmail Access Token
+
+#### [MODIFY] [firebase.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/firebase.js)
+- Add utility function to store Gmail access token from Firebase auth result. 
+
+#### [MODIFY] [Login.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Login.jsx)
+- After `signInWithPopup`, extract and store the Gmail OAuth access token from the credential.
+
+#### [MODIFY] [Dashboard.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Dashboard.jsx)
+- Update [handleConnectGmail](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Dashboard.jsx#42-46) to trigger re-authentication with Gmail scopes if not already connected.
+- Update integration state based on stored token availability.
+- Add loading/error states for connection flow.
+
+---
+
+### Backend - Vercel Serverless API
+
+#### [NEW] [gmail-connect.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-connect.js)
+- Endpoint to store Gmail access token (encrypted) for the user.
+- Verifies Firebase ID token before storing.
+
+#### [NEW] [gmail-status.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-status.js)
+- Endpoint to check if user has a valid Gmail connection.
+- Returns connection status and basic Gmail account info.
+
+#### [NEW] [gmail-test.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-test.js)
+- Test endpoint to verify Gmail API access works.
+- Fetches user's email address and basic profile to confirm token validity.
+
+---
+
+## Verification Plan
+
+### Manual Testing
+1. **Start dev server**: Run `npm run dev` from project root
+2. **Open browser**: Navigate to `http://localhost:5173`
+3. **Sign in**: Click "Continue with Google" and complete Google OAuth
+4. **Dashboard check**: After redirect, verify Gmail card shows loading then connected/disconnected state
+5. **Connect Gmail**: Click "Connect Gmail" button if not connected
+6. **Verify connection**: Gmail card should update to show "Connected" status
+
+### API Testing (via browser console)
+After implementing, test the API endpoints:
+```javascript
+// Test gmail-status endpoint
+const token = await firebase.auth().currentUser.getIdToken();
+const res = await fetch('/api/integrations/gmail-status', {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+console.log(await res.json());
+```
+
+> [!IMPORTANT]
+> The Gmail API tokens have a 1-hour expiration. For persistent access, we'll need to use refresh tokens, which requires additional backend setup. This implementation will work for immediate testing but may need enhancement for production use.
