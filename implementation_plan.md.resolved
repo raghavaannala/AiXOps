@@ -1,73 +1,162 @@
-# Gmail OAuth Integration Using Firebase
+# AI Email Assistant - Follow-up Reminder & Redraft System
 
-Enable functional Gmail connection in the AiOps dashboard using the existing Firebase project with Google authentication.
+Build an intelligent email assistant that monitors sent emails, detects when no reply is received within a configurable time period (e.g., 2 days), reminds the user, and uses Cerebras AI (llama-3.3-70b) to help redraft and resend follow-up emails.
 
-## Key Insight
+## User Review Required
 
-The existing Firebase config already requests Gmail scopes:
-```javascript
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify');
-```
+> [!IMPORTANT]
+> **API Key Storage**: The Cerebras API key needs to be stored. Options:
+> 1. **Environment variable** (recommended for serverless) - Add `CEREBRAS_API_KEY` to [.env](file:///c:/Users/annal/OneDrive/Desktop/AiOps/.env)
+> 2. **User-specific storage** - Store per-user in database/localStorage
+> 
+> Currently planning for environment variable approach.
 
-When users sign in with `signInWithPopup`, Firebase returns an OAuth access token that can be used to call Gmail API directly. We just need to capture and use this token.
+> [!IMPORTANT]
+> **Data Persistence**: Follow-up tracking data will be stored in localStorage initially. For production, PostgreSQL (already in dependencies) should be used.
 
 ---
 
 ## Proposed Changes
 
-### Frontend - Capture Gmail Access Token
+### Backend Services
 
-#### [MODIFY] [firebase.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/firebase.js)
-- Add utility function to store Gmail access token from Firebase auth result. 
+#### [NEW] [cerebras.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/lib/cerebras.js)
+Cerebras AI SDK wrapper for generating email drafts:
+- Initialize Cerebras client with API key
+- `generateFollowUp(originalEmail, context)` - Generate AI-powered follow-up text
+- `redraftEmail(originalEmail, instructions)` - Redraft an email based on user instructions
+- Streaming support for real-time response display
 
-#### [MODIFY] [Login.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Login.jsx)
-- After `signInWithPopup`, extract and store the Gmail OAuth access token from the credential.
+#### [NEW] [gmail-sent-fetch.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-sent-fetch.js)
+API to fetch sent emails with thread context:
+- Query `SENT` label instead of `INBOX`
+- Include `threadId` for tracking replies
+- Extract recipient address ([To](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/gmailUtils.js#22-56) header)
+- Store [Date](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/components/EmailInbox.jsx#42-56) for time-based follow-up detection
 
-#### [MODIFY] [Dashboard.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Dashboard.jsx)
-- Update [handleConnectGmail](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Dashboard.jsx#42-46) to trigger re-authentication with Gmail scopes if not already connected.
-- Update integration state based on stored token availability.
-- Add loading/error states for connection flow.
+#### [NEW] [gmail-check-replies.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-check-replies.js)
+API to check if sent emails have received replies:
+- Accept list of sent email `threadId`s
+- Query Gmail for thread messages
+- Return which threads have replies vs pending
+
+#### [NEW] [gmail-send.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-send.js)
+API to send emails via Gmail:
+- Compose email in RFC 2822 format
+- Support for reply (In-Reply-To header)
+- Support for new emails
+
+#### [NEW] [ai-draft.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/ai/ai-draft.js)
+API to generate AI-powered email drafts:
+- Accept original email content and context
+- Stream response from Cerebras model
+- Return generated follow-up email text
+
+#### [NEW] [email-followup.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/cron/email-followup.js)
+Cron job handler for follow-up monitoring:
+- Query tracked sent emails from storage
+- Check which emails haven't received replies
+- Generate notifications for emails exceeding follow-up threshold
+- Already configured in [vercel.json](file:///c:/Users/annal/OneDrive/Desktop/AiOps/vercel.json) to run every 15 minutes
 
 ---
 
-### Backend - Vercel Serverless API
+### Frontend Components
 
-#### [NEW] [gmail-connect.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-connect.js)
-- Endpoint to store Gmail access token (encrypted) for the user.
-- Verifies Firebase ID token before storing.
+#### [NEW] [AIAssistant.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/components/AIAssistant.jsx)
+Main AI assistant panel component:
+- Shows pending follow-up reminders
+- "Ask AI to Redraft" button for each pending email
+- Modal/slide-out for viewing AI-generated draft
+- Edit, approve, and send buttons
+- Real-time streaming display of AI response
 
-#### [NEW] [gmail-status.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-status.js)
-- Endpoint to check if user has a valid Gmail connection.
-- Returns connection status and basic Gmail account info.
+#### [NEW] [PendingFollowups.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/components/PendingFollowups.jsx)
+List of emails awaiting replies:
+- Shows sent emails past follow-up threshold
+- Configurable time threshold (1-7 days)
+- Status indicators (days waiting)
+- Quick actions: View thread, Generate follow-up, Dismiss
 
-#### [NEW] [gmail-test.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/api/integrations/gmail-test.js)
-- Test endpoint to verify Gmail API access works.
-- Fetches user's email address and basic profile to confirm token validity.
+#### [NEW] [EmailComposer.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/components/EmailComposer.jsx)
+Email composition/editing component:
+- Display AI-generated draft with edit capability
+- To, Subject, Body fields
+- "Regenerate" button to ask AI for different versions
+- Send button
+
+#### [NEW] [followupUtils.js](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/followupUtils.js)
+Utilities for follow-up tracking:
+- Store/retrieve followed emails from localStorage
+- Calculate days since email sent
+- Filter emails past threshold
+
+#### [MODIFY] [Dashboard.jsx](file:///c:/Users/annal/OneDrive/Desktop/AiOps/src/pages/Dashboard.jsx)
+Add AI Assistant section:
+- Import and render `AIAssistant` component
+- Add "Pending Follow-ups" section when Gmail connected
+- Add quick stats for pending emails
+
+---
+
+### Configuration
+
+#### [MODIFY] [.env.example](file:///c:/Users/annal/OneDrive/Desktop/AiOps/.env.example)
+Add Cerebras API key configuration:
+```
+CEREBRAS_API_KEY=your-cerebras-api-key
+```
+
+#### [MODIFY] [package.json](file:///c:/Users/annal/OneDrive/Desktop/AiOps/package.json)
+Add Cerebras SDK dependency:
+```json
+"cerebras-cloud-sdk": "^1.0.0"
+```
 
 ---
 
 ## Verification Plan
 
-### Manual Testing
-1. **Start dev server**: Run `npm run dev` from project root
-2. **Open browser**: Navigate to `http://localhost:5173`
-3. **Sign in**: Click "Continue with Google" and complete Google OAuth
-4. **Dashboard check**: After redirect, verify Gmail card shows loading then connected/disconnected state
-5. **Connect Gmail**: Click "Connect Gmail" button if not connected
-6. **Verify connection**: Gmail card should update to show "Connected" status
+### Manual Verification (Browser Testing)
 
-### API Testing (via browser console)
-After implementing, test the API endpoints:
-```javascript
-// Test gmail-status endpoint
-const token = await firebase.auth().currentUser.getIdToken();
-const res = await fetch('/api/integrations/gmail-status', {
-  headers: { 'Authorization': `Bearer ${token}` }
-});
-console.log(await res.json());
-```
+Since this feature involves Gmail OAuth and real email sending, automated testing is limited. The following manual tests should be performed:
 
-> [!IMPORTANT]
-> The Gmail API tokens have a 1-hour expiration. For persistent access, we'll need to use refresh tokens, which requires additional backend setup. This implementation will work for immediate testing but may need enhancement for production use.
+#### Test 1: Cerebras AI Integration
+1. Run `npm run dev:full` to start the development server
+2. Open browser DevTools console
+3. Test the AI draft API endpoint manually:
+   ```javascript
+   fetch('/api/ai/ai-draft', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({
+       originalEmail: {
+         to: 'hr@company.com',
+         subject: 'Leave Request',
+         body: 'Hello, I would like to request leave next week.'
+       }
+     })
+   }).then(r => r.json()).then(console.log)
+   ```
+4. Verify AI generates a reasonable follow-up email
+
+#### Test 2: Sent Email Fetching
+1. Connect Gmail on the dashboard
+2. Navigate to the Pending Follow-ups section
+3. Verify sent emails are displayed
+4. Check that emails show correct recipient and date
+
+#### Test 3: Reply Detection
+1. Find an email thread where you already received a reply
+2. Verify it does NOT appear in pending follow-ups
+3. Find an email you sent that has no reply
+4. Verify it DOES appear in pending follow-ups after threshold
+
+#### Test 4: AI Redraft Flow
+1. Click "Redraft with AI" on a pending follow-up
+2. Verify AI generates a follow-up draft
+3. Edit the draft if needed
+4. Click "Send" and verify email is sent via Gmail
+
+> [!NOTE]
+> **User Input Requested**: Are there specific test emails or scenarios you'd like me to focus on? Also, would you prefer a specific follow-up threshold (currently planning for 2 days as you mentioned)?

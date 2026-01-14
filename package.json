@@ -5,19 +5,29 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:api": "node dev-server.js",
+    "dev:full": "concurrently \"npm run dev\" \"npm run dev:api\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@cerebras/cerebras_cloud_sdk": "^1.64.1",
+    "@neondatabase/serverless": "^1.0.2",
     "firebase": "^12.7.0",
+    "firebase-admin": "^13.6.0",
     "googleapis": "^128.0.0",
-    "pg": "^8.11.3",
+    "mssql": "^12.2.0",
+    "pg": "^8.16.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0"
   },
   "devDependencies": {
+    "@vercel/node": "^5.5.16",
     "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
     "vite": "^5.0.8"
   }
 }

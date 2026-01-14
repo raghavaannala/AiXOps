@@ -39,6 +39,9 @@ export default async function handler(req, res) {
             }
         }
 
+        console.log('Gmail callback - exchanging code for tokens...');
+        console.log('Redirect URI used:', redirectUri);
+
         // Exchange authorization code for tokens
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
@@ -55,8 +58,15 @@ export default async function handler(req, res) {
         const tokens = await tokenResponse.json();
 
         if (tokens.error) {
-            console.error('Token error:', tokens);
-            return res.status(400).json({ error: tokens.error_description || tokens.error });
+            console.error('Token exchange error:', tokens);
+            return res.status(400).json({
+                error: tokens.error_description || tokens.error,
+                details: tokens.error === 'invalid_grant'
+                    ? 'Authorization code expired or already used. Please try connecting again.'
+                    : tokens.error === 'redirect_uri_mismatch'
+                        ? 'Redirect URI mismatch. Check GOOGLE_REDIRECT_URI in .env'
+                        : null
+            });
         }
 
         // Get user email from Gmail API

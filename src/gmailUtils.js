@@ -105,3 +105,23 @@ export async function testGmailConnection() {
 
     return data;
 }
+
+// Fetch emails from Gmail
+export async function fetchEmails(maxResults = 15) {
+    const accessToken = await getValidAccessToken();
+
+    const response = await fetch('/api/integrations/gmail-fetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken, maxResults })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch emails');
+    }
+
+    return data;
+}
+

@@ -1,304 +1,301 @@
 import { useState, useEffect } from 'react';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase';
-import IntegrationCard from '../components/IntegrationCard';
-import AutomationCard from '../components/AutomationCard';
-import ActivityItem from '../components/ActivityItem';
-import {
-    getGmailConnection,
-    startGmailAuth,
-    disconnectGmail,
-    testGmailConnection
-} from '../gmailUtils';
+import { getGmailConnection, startGmailAuth, disconnectGmail, getValidAccessToken } from '../gmailUtils';
+import Sidebar from '../components/Sidebar';
+import Header from '../components/Header';
+import { IntegrationCard, AutomationCard, FeatureCard } from '../components/Cards';
+import AIAssistant from '../components/AIAssistant';
+import EmailComposer from '../components/EmailComposer';
+import EmailInbox from '../components/EmailInbox';
+import { useNotification } from '../components/Notifications';
+import NotificationBanner from '../components/NotificationBanner';
 
 export default function Dashboard({ user }) {
-    const [integrations, setIntegrations] = useState({ gmail: false, github: false });
-    const [gmailEmail, setGmailEmail] = useState(null);
-    const [gmailLoading, setGmailLoading] = useState(false);
-    const [automations, setAutomations] = useState([]);
-    const [activities, setActivities] = useState([]);
+    const notify = useNotification();
     const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({ emailsTracked: 0, prsMonitored: 0 });
+    const [gmailConnected, setGmailConnected] = useState(false);
+    const [gmailEmail, setGmailEmail] = useState(null);
+    const [gmailAccessToken, setGmailAccessToken] = useState(null);
+    const [githubConnected, setGithubConnected] = useState(false);
+    const [composerData, setComposerData] = useState(null);
+    const [showActivity, setShowActivity] = useState(false);
+
+    // Automation states
+    const [gmailAutomationActive, setGmailAutomationActive] = useState(true);
+    const [githubAutomationActive, setGithubAutomationActive] = useState(true);
+    const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(false);
 
     useEffect(() => {
-        fetchData();
+        initializeData();
+        // Request notification permission on load
+        notify.requestPermission();
     }, []);
 
-    const fetchData = async () => {
+    const initializeData = async () => {
         try {
-            // Check Gmail connection status
-            const gmailConnection = getGmailConnection();
-            if (gmailConnection?.connected) {
-                setIntegrations(prev => ({ ...prev, gmail: true }));
-                setGmailEmail(gmailConnection.email);
+            // Check Gmail connection
+            const connection = getGmailConnection();
+            const connected = !!connection?.accessToken;
+            setGmailConnected(connected);
 
-                // Test if connection is still valid
+            if (connected) {
+                setGmailEmail(connection.email);
                 try {
-                    await testGmailConnection();
+                    const token = await getValidAccessToken();
+                    setGmailAccessToken(token);
                 } catch (err) {
-                    console.error('Gmail connection test failed:', err);
-                    // Connection expired or invalid
-                    setIntegrations(prev => ({ ...prev, gmail: false }));
-                    setGmailEmail(null);
+                    console.error('Token refresh failed:', err);
+                    setGmailAccessToken(connection.accessToken);
                 }
             }
-
-            setAutomations([]);
-            setActivities([]);
-            setStats({ emailsTracked: 0, prsMonitored: 0 });
         } catch (error) {
-            console.error('Failed to fetch data:', error);
+            console.error('Init error:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    const handleLogout = async () => {
-        try {
-            await signOut(auth);
-        } catch (error) {
-            console.error('Logout error:', error);
-        }
-    };
-
-    const handleConnectGmail = async () => {
-        setGmailLoading(true);
-        try {
-            await startGmailAuth(user.uid);
-            // Will redirect to Google OAuth
-        } catch (error) {
-            console.error('Gmail connect error:', error);
-            alert('Failed to start Gmail connection: ' + error.message);
-            setGmailLoading(false);
-        }
+    const handleConnectGmail = () => {
+        startGmailAuth(user?.uid);
     };
 
     const handleDisconnectGmail = () => {
         disconnectGmail();
-        setIntegrations(prev => ({ ...prev, gmail: false }));
+        setGmailConnected(false);
         setGmailEmail(null);
+        setGmailAccessToken(null);
+        notify.info('Disconnected', 'Gmail access revoked');
     };
 
     const handleConnectGitHub = () => {
-        // TODO: Implement GitHub OAuth
-        alert('GitHub integration coming soon!');
+        notify.info('Coming Soon', 'GitHub integration is under development');
     };
 
-    const toggleAutomation = async (id, enabled) => {
-        try {
-            // TODO: Call backend API
-            setAutomations(prev =>
-                prev.map(auto => auto.id === id ? { ...auto, enabled } : auto)
-            );
-        } catch (error) {
-            console.error('Failed to toggle automation:', error);
+    const handleComposeFollowup = (data) => {
+        setComposerData(data);
+    };
+
+    const handleEmailSent = () => {
+        setComposerData(null);
+        notify.success('Email Sent!', 'Your follow-up was sent successfully', {
+            onClick: () => window.scrollTo({ top: 0, behavior: 'smooth' })
+        });
+    };
+
+    // Calculate next run time based on current time
+    const getNextRunTime = (intervalHours = 1) => {
+        const now = new Date();
+        const next = new Date(now.getTime() + intervalHours * 60 * 60 * 1000);
+        const hours = next.getHours();
+        const minutes = next.getMinutes();
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const displayHour = hours % 12 || 12;
+        const displayMin = minutes.toString().padStart(2, '0');
+
+        if (intervalHours < 1) {
+            return `In ${Math.round(intervalHours * 60)} min at ${displayHour}:${displayMin} ${ampm}`;
         }
+        return `In ${intervalHours}h at ${displayHour}:${displayMin} ${ampm}`;
+    };
+
+    // Get day/time for weekly runs
+    const getNextWeeklyRun = () => {
+        const now = new Date();
+        const nextMonday = new Date(now);
+        nextMonday.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7));
+        nextMonday.setHours(9, 0, 0, 0);
+
+        const daysUntil = Math.ceil((nextMonday - now) / (1000 * 60 * 60 * 24));
+        return daysUntil === 1 ? 'Tomorrow at 9:00 AM' : `In ${daysUntil} days (Monday 9:00 AM)`;
     };
 
     if (loading) {
         return (
             <div className="loading">
                 <div className="spinner"></div>
-                <div>Loading dashboard...</div>
+                <div>Loading your workspace...</div>
             </div>
         );
     }
 
+    const userName = user?.displayName?.split(' ')[0] || 'there';
+
     return (
-        <div className="container">
-            {/* Header */}
-            <div className="header">
-                <div>
-                    <h1 className="header-title" style={{ margin: 0 }}>
-                        Welcome To AiOps
+        <div style={{ display: 'flex', minHeight: '100vh', background: '#f1f5f9' }}>
+            {/* Sidebar */}
+            <Sidebar user={user} />
+
+            {/* Main Content */}
+            <main style={{
+                flex: 1,
+                marginLeft: '240px',
+                padding: '1.5rem 2rem'
+            }}>
+                {/* Header */}
+                <Header user={user} onViewActivity={() => setShowActivity(!showActivity)} />
+
+                {/* Welcome Section */}
+                <div style={{ marginBottom: '2rem' }}>
+                    <h1 style={{
+                        fontSize: '2rem',
+                        fontWeight: 700,
+                        color: '#0f172a',
+                        marginBottom: '0.5rem'
+                    }}>
+                        Welcome, {userName}! 👋
                     </h1>
-                    <p className="header-subtitle">
-                        Welcome back, {user?.displayName || user?.email?.split('@')[0]}! 👋
+                    <p style={{
+                        fontSize: '1rem',
+                        color: '#64748b'
+                    }}>
+                        Automate your dev workflows with smart follow-ups and reminders.
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    {user?.photoURL && (
-                        <div style={{
-                            background: 'rgba(255, 255, 255, 0.25)',
-                            backdropFilter: 'blur(10px)',
-                            padding: '0.75rem 1.5rem',
-                            borderRadius: '12px',
-                            color: 'white',
+
+                {/* Notification Permission Banner */}
+                <NotificationBanner userId={user?.uid} />
+
+                {/* Integration Cards */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: '1.5rem',
+                    marginBottom: '2rem'
+                }}>
+                    <IntegrationCard
+                        icon="📧"
+                        name="Gmail"
+                        connected={gmailConnected}
+                        email={gmailEmail}
+                        onConnect={handleConnectGmail}
+                        onRevoke={handleDisconnectGmail}
+                    />
+                    <IntegrationCard
+                        icon="🐙"
+                        name="GitHub"
+                        connected={githubConnected}
+                        username={githubConnected ? 'annaDev' : null}
+                        onConnect={handleConnectGitHub}
+                        onRevoke={() => setGithubConnected(false)}
+                    />
+                </div>
+
+                {/* Automation Cards */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gap: '1.5rem',
+                    marginBottom: '2rem'
+                }}>
+                    <AutomationCard
+                        icon="📧"
+                        title="Gmail Follow-Up Automation"
+                        description="Automatically draft follow-ups for emails with no reply after 2 days"
+                        active={gmailAutomationActive && gmailConnected}
+                        nextRun={gmailAutomationActive && gmailConnected ? getNextRunTime(1) : 'Disabled'}
+                        onToggle={() => {
+                            setGmailAutomationActive(!gmailAutomationActive);
+                            notify.info(
+                                gmailAutomationActive ? 'Automation Paused' : 'Automation Enabled',
+                                gmailAutomationActive ? 'Follow-up automation is now disabled' : 'Follow-up automation will check every hour'
+                            );
+                        }}
+                        onSettings={() => notify.info('Settings', 'Opening automation settings...', {
+                            onClick: () => window.location.href = '/settings'
+                        })}
+                    />
+                    <AutomationCard
+                        icon="🔔"
+                        title="GitHub PR Reminder Automation"
+                        description="Send reminders for open PRs pending review after 3 days without activity"
+                        active={githubAutomationActive && githubConnected}
+                        nextRun={githubAutomationActive && githubConnected ? getNextRunTime(2) : 'Disabled'}
+                        onToggle={() => {
+                            setGithubAutomationActive(!githubAutomationActive);
+                            notify.info(
+                                githubAutomationActive ? 'Automation Paused' : 'Automation Enabled',
+                                githubAutomationActive ? 'PR reminder automation is now disabled' : 'PR reminders will check every 2 hours'
+                            );
+                        }}
+                        onSettings={() => notify.info('Settings', 'Opening automation settings...', {
+                            onClick: () => window.location.href = '/settings'
+                        })}
+                    />
+                </div>
+
+                {/* Weekly Summary Feature */}
+                <FeatureCard
+                    icon="📊"
+                    title="Weekly GitHub Summary"
+                    description="Get a weekly summary of your GitHub activities sent to your email inbox every Monday at 9:00"
+                    enabled={weeklyDigestEnabled}
+                    onEnable={() => setWeeklyDigestEnabled(!weeklyDigestEnabled)}
+                    actionLabel={weeklyDigestEnabled ? "Draft Summary & Send Email" : null}
+                />
+                {/* AI Assistant Section - Only show when Gmail connected */}
+                {gmailConnected && gmailAccessToken && (
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '16px',
+                        padding: '1.5rem',
+                        marginTop: '2rem',
+                        boxShadow: '0 2px 12px rgba(0, 0, 0, 0.06)'
+                    }}>
+                        <h2 style={{
+                            fontSize: '1.25rem',
                             fontWeight: 600,
+                            color: '#0f172a',
+                            marginBottom: '1rem',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '0.75rem',
-                            border: '1px solid rgba(255, 255, 255, 0.4)',
-                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
+                            gap: '0.5rem'
                         }}>
-                            <img
-                                src={user.photoURL}
-                                alt="Profile"
-                                style={{
-                                    width: '32px',
-                                    height: '32px',
-                                    borderRadius: '50%',
-                                    border: '2px solid white'
-                                }}
-                            />
-                            <span style={{ textShadow: '0 2px 4px rgba(0, 0, 0, 0.2)' }}>
-                                {user.email}
-                            </span>
-                        </div>
-                    )}
-                    <button onClick={handleLogout} className="btn btn-secondary">
-                        Logout
-                    </button>
-                </div>
-            </div>
-
-            {/* Stats Card */}
-            <div className="grid grid-2" style={{ marginBottom: '2rem' }}>
-                <StatCard
-                    icon="📧"
-                    label="Emails Tracked"
-                    value={stats.emailsTracked}
-                    color="#1a1aafff"
-                />
-                <StatCard
-                    icon="🐙"
-                    label="PRs Monitored"
-                    value={stats.prsMonitored}
-                    color="#331b95ff"
-                />
-            </div>
-
-            {/* Integrations Section */}
-            <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <div>
-                        <h2 style={{ margin: 0 }}>Integrations</h2>
-                        <p style={{ color: '#64748b', marginTop: '0.5rem', marginBottom: 0 }}>
-                            Connect your accounts to enable automations
-                        </p>
-                    </div>
-                </div>
-
-                <div className="grid grid-2">
-                    <IntegrationCard
-                        name="Gmail"
-                        icon="📧"
-                        connected={integrations.gmail}
-                        connectedEmail={gmailEmail}
-                        loading={gmailLoading}
-                        description="Send automated follow-up emails when no reply is received"
-                        onConnect={handleConnectGmail}
-                        onDisconnect={handleDisconnectGmail}
-                    />
-
-                    <IntegrationCard
-                        name="GitHub"
-                        icon="🐙"
-                        connected={integrations.github}
-                        description="Track PRs and commits with intelligent reminders"
-                        onConnect={handleConnectGitHub}
-                    />
-                </div>
-            </div>
-
-            {/* Automations Section */}
-            {automations.length > 0 && (
-                <div className="card">
-                    <div style={{ marginBottom: '1.5rem' }}>
-                        <h2 style={{ margin: 0 }}>Automations</h2>
-                        <p style={{ color: '#64748b', marginTop: '0.5rem', marginBottom: 0 }}>
-                            Configure your automated workflows
-                        </p>
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {automations.map(automation => (
-                            <AutomationCard
-                                key={automation.id}
-                                automation={automation}
-                                onToggle={(enabled) => toggleAutomation(automation.id, enabled)}
-                            />
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Activity Section */}
-            <div className="card">
-                <div style={{ marginBottom: '1.5rem' }}>
-                    <h2 style={{ margin: 0 }}>Recent Activity</h2>
-                    <p style={{ color: '#64748b', marginTop: '0.5rem', marginBottom: 0 }}>
-                        Your automation history
-                    </p>
-                </div>
-
-                {activities.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {activities.map(activity => (
-                            <ActivityItem key={activity.id} activity={activity} />
-                        ))}
-                    </div>
-                ) : (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '4rem 2rem',
-                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%)',
-                        borderRadius: '16px',
-                        border: '2px dashed rgba(99, 102, 241, 0.2)'
-                    }}>
-                        <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📊</div>
-                        <h3 style={{ color: '#64748b', marginBottom: '0.5rem', fontWeight: 600 }}>No activity yet</h3>
-                        <p style={{ color: '#94a3b8', fontSize: '0.9375rem', margin: 0 }}>
-                            Connect your accounts and enable automations to get started!
-                        </p>
+                            🤖 AI Follow-up Assistant
+                        </h2>
+                        <AIAssistant
+                            accessToken={gmailAccessToken}
+                            onComposeFollowup={handleComposeFollowup}
+                        />
                     </div>
                 )}
-            </div>
-        </div>
-    );
-}
 
-function StatCard({ icon, label, value, color }) {
-    return (
-        <div className="card" style={{
-            background: `rgba(254, 253, 253, 0.95)`,
-            border: `2px solid ${color}30`,
-            padding: '2rem'
-        }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                    <p style={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        {label}
-                    </p>
-                    <h3 style={{ fontSize: '3rem', fontWeight: 800, margin: 0, color: color }}>
-                        {value}
-                    </h3>
-                    {value > 0 && (
-                        <p style={{
-                            color: '#94a3b8',
-                            fontSize: '0.875rem',
-                            fontWeight: 500,
-                            marginTop: '0.5rem',
-                            marginBottom: 0
+                {/* Email Composer Modal */}
+                {composerData && (
+                    <EmailComposer
+                        initialTo={composerData.to}
+                        initialSubject={composerData.subject}
+                        initialBody={composerData.body}
+                        threadId={composerData.threadId}
+                        accessToken={gmailAccessToken}
+                        onSend={handleEmailSent}
+                        onCancel={() => setComposerData(null)}
+                        onRegenerate={() => { }}
+                    />
+                )}
+
+                {/* Email Inbox - Shows when Gmail connected */}
+                {gmailConnected && gmailAccessToken && (
+                    <div style={{
+                        background: 'white',
+                        borderRadius: '16px',
+                        padding: '1.5rem',
+                        marginTop: '2rem',
+                        boxShadow: '0 2px 12px rgba(0, 0, 0, 0.06)'
+                    }}>
+                        <h2 style={{
+                            fontSize: '1.25rem',
+                            fontWeight: 600,
+                            color: '#0f172a',
+                            marginBottom: '1rem'
                         }}>
-                            Total tracked
-                        </p>
-                    )}
-                </div>
-                <div style={{
-                    fontSize: '3rem',
-                    background: 'linear-gradient(135deg, #7990f3 0%, #9062be 50%, #eef605 100%)',
-                    borderRadius: '16px',
-                    width: '70px',
-                    height: '70px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 10px 30px rgba(99, 102, 241, 0.3)'
-                }}>
-                    {icon}
-                </div>
-            </div>
+                            📬 Recent Emails
+                        </h2>
+                        <EmailInbox accessToken={gmailAccessToken} />
+                    </div>
+                )}
+
+
+            </main>
+
         </div>
     );
 }

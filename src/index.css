@@ -27,15 +27,19 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, #7990f3 0%, #9062be 50%, #eef605 100%);
-  background-attachment: fixed;
+  background: #f1f5f9;
   min-height: 100vh;
   color: var(--dark);
   overflow-x: hidden;
 }
 
-/* Animated background */
-body::before {
+/* Remove animated background for dashboard - only show on login */
+body.login-page {
+  background: linear-gradient(135deg, #7990f3 0%, #9062be 50%, #eef605 100%);
+  background-attachment: fixed;
+}
+
+body.login-page::before {
   content: '';
   position: fixed;
   top: 0;
@@ -199,7 +203,7 @@ h4 {
 h1 {
   font-size: 2.5rem;
   background: white;
-  
+
   background-clip: text;
 }
 

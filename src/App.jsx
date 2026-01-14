@@ -5,6 +5,7 @@ import { auth } from './firebase';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import GmailCallback from './pages/GmailCallback';
+import { NotificationProvider } from './components/Notifications';
 
 function App() {
     const [user, setUser] = useState(null);
@@ -29,24 +30,27 @@ function App() {
     }
 
     return (
-        <Router>
-            <Routes>
-                <Route
-                    path="/"
-                    element={user ? <Navigate to="/dashboard" /> : <Login />}
-                />
-                <Route
-                    path="/dashboard"
-                    element={user ? <Dashboard user={user} /> : <Navigate to="/" />}
-                />
-                <Route
-                    path="/auth/gmail/callback"
-                    element={user ? <GmailCallback /> : <Navigate to="/" />}
-                />
-            </Routes>
-        </Router>
+        <NotificationProvider>
+            <Router>
+                <Routes>
+                    <Route
+                        path="/"
+                        element={user ? <Navigate to="/dashboard" /> : <Login />}
+                    />
+                    <Route
+                        path="/dashboard"
+                        element={user ? <Dashboard user={user} /> : <Navigate to="/" />}
+                    />
+                    <Route
+                        path="/auth/gmail/callback"
+                        element={user ? <GmailCallback /> : <Navigate to="/" />}
+                    />
+                </Routes>
+            </Router>
+        </NotificationProvider>
     );
 }
 
 export default App;
+
 
